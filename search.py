@@ -13,19 +13,102 @@ def find_files_windows(pattern: str, path: str, case_sensitive: bool = False) ->
     # Использовать analysis.count_files() для отслеживания прогресса
     pass
 
+
 def find_by_windows_extension(extensions: List[str], path: str) -> List[str]:
-    """Поиск файлов по списку расширений Windows"""
-    # TODO: Использовать analysis.analyze_windows_file_types() для оптимизации
-    # Поддерживать поиск по нескольким расширениям: ['.exe', '.msi', '.dll']
-    # Автоматически добавлять точку если нужно
-    pass
+    """
+       Рекурсивно ищет файлы по списку расширений.
+       Поиск выполняется без учёта регистра. Точка перед расширением
+       добавляется автоматически. Символические ссылки и junction points пропускаются.
+       Скрытые и системные файлы участвуют в поиске.
+
+       Args:
+           extensions: список расширений
+           path: путь к начальному каталогу поиска.
+
+       Returns:
+           Список полных путей найденных файлов. Возвращает пустой
+           список, если совпадений нет, список расширений пуст или
+           начальный каталог недоступен.
+       """
+    normalized_ext = set()
+    for ext in extensions:
+        normalized = ext.strip().lower()
+
+        if normalized and not normalized.startswith("."):
+            normalized = "." + normalized
+
+        normalized_ext.add(normalized)
+
+    if not normalized_ext:
+        return []
+
+    results = []
+
+    def walk_directory(current_path: str) -> None:
+        """
+        Рекурсивно обходит каталог и добавляет найденные пути в results.
+        """
+        success, items = navigation.list_directory(current_path)
+        if not success:
+            return
+
+        for item in items:
+            if item["link"]:
+                continue
+            if item["type"] == "file":
+                file_ext = os.path.splitext(item["name"])[1].lower()
+                if file_ext in normalized_ext:
+                    results.append(item["path"])
+
+            elif item["type"] == "dir":
+                walk_directory(item["path"])
+
+    walk_directory(path)
+    return results
+
 
 def find_large_files_windows(min_size_mb: float, path: str) -> List[Dict[str, Any]]:
-    """Поиск крупных файлов в Windows"""
-    # TODO: Использовать analysis.count_bytes() для расчета размеров
-    # Вернуть список словарей с информацией о файлах: 
-    # [{'path': '...', 'size_mb': 150.5, 'type': '.zip'}, ...]
-    pass
+    """
+    Рекурсивно ищет файлы не меньше заданного размера.
+    Результаты сортируются по размеру от большего к меньшему.
+
+    Args:
+        min_size_mb: минимальный размер файла в мегабайтах
+        path: начальный каталог поиска.
+
+    Returns:
+        Список словарей с путём, размером в MB и расширением файла.
+    """
+    results = []
+    if min_size_mb < 0:
+        return []
+    min_size_bytes = min_size_mb * 1024 * 1024
+
+    def walk_directory(current_path: str) -> None:
+        """
+        Рекурсивно обходит каталог и добавляет информацию
+        о файлах, размер которых не меньше заданного порога.
+        """
+        success, items = navigation.list_directory(current_path)
+        if not success:
+            return
+
+        for item in items:
+            if item["link"]:
+                continue
+
+            if item["type"] == "file":
+                if item["size"] >= min_size_bytes:
+                    ext = os.path.splitext(item["name"])[1].lower()
+                    results.append({"path": item["path"], "size_mb": item["size"] / (1024 * 1024), "type": ext})
+
+            elif item["type"] == "dir":
+                walk_directory(item["path"])
+
+    walk_directory(path)
+    results.sort(key=lambda x: x["size_mb"], reverse=True)
+    return results
+
 
 def find_windows_system_files(path: str) -> List[str]:
     """Поиск системных файлов Windows"""

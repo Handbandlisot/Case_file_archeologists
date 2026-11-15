@@ -104,10 +104,7 @@ def count_bytes(path: str) -> Tuple[bool, int]:
             continue
 
         if item["type"] == "file":
-            size = item.get("size", 0)
-
-            if isinstance(size, int) and size >= 0:
-                total_bytes += size
+            total_bytes += item["size"]
 
         elif item["type"] == "dir":
             child_success, child_bytes = count_bytes(item["path"])
@@ -146,10 +143,7 @@ def analyze_windows_file_types(path: str) -> Tuple[bool, Dict[str, Dict[str, Any
 
         if item["type"] == "file":
             extension = os.path.splitext(item["name"])[1].lower()
-
-            size = item.get("size", 0)
-            if isinstance(size, int) and size >= 0:
-                statistics[extension]["size"] += size
+            statistics[extension]["size"] += item["size"]
 
             statistics[extension]["count"] += 1
 
