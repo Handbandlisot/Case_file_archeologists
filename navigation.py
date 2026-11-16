@@ -4,6 +4,7 @@ import stat
 import string
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
+
 import utils
 
 
@@ -13,6 +14,15 @@ _REPARSE_TAG_MOUNT_POINT = getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT",
 
 
 def get_current_drive(path: str = "") -> str:
+    """
+    Возвращает диск, на котором находится указанный путь.
+
+    Args:
+        path: путь, диск которого нужен
+
+    Returns:
+        Диск
+    """
     source = path or os.getcwd()
 
     drive = os.path.splitdrive(source)[0]
@@ -27,6 +37,12 @@ def get_current_drive(path: str = "") -> str:
 
 
 def list_available_drives() -> List[str]:
+    """
+    Возвращает список доступных дисков Windows.
+
+    Returns:
+        Список вида ["C:", "D:"]. Вне Windows - пустой список.
+    """
     if not utils.is_windows_os():
         return []
 
@@ -44,6 +60,9 @@ def list_available_drives() -> List[str]:
 
 
 def _is_absolute(path: str) -> bool:
+    """
+    Проверка, является ли путь абсолютным.
+    """
     if path.startswith("\\\\"):
         return True
     drive, tail = os.path.splitdrive(path)
@@ -51,6 +70,15 @@ def _is_absolute(path: str) -> bool:
 
 
 def normalize_path(path: str) -> str:
+    """
+    Приводит путь к каноническому виду Windows.
+
+    Args:
+        path: исходный путь.
+
+    Returns:
+        Нормализованный путь. Пустая строка возвращается без изменений.
+    """
     if not path:
         return path
 
@@ -76,6 +104,19 @@ def normalize_path(path: str) -> str:
 
 
 def _read_attributes(info: Optional[os.stat_result]) -> Dict[str, bool]:
+    """
+    Определяет флаги атрибутов элемента по результату os.lstat() (system"
+    (системный), "readonly" (только для чтения) и "link"
+    (symlink или junction point))
+
+    Args:
+        info: результат os.lstat()
+
+    Returns:
+        Словарь с флагами "system" (системный), "readonly" (только
+        для чтения) и "link" (symlink или junction point). Если
+        метаданные недоступны, все флаги равны False.
+    """
     flags = {"system": False, "readonly": False, "link": False}
     if info is None:
         return flags
@@ -93,6 +134,16 @@ def _read_attributes(info: Optional[os.stat_result]) -> Dict[str, bool]:
 
 
 def _build_item(directory: str, name: str) -> Dict[str, Any]:
+    """
+    Собирает словарь с информацией об одном элементе каталога.
+
+    Args:
+        directory: каталог, в котором лежит элемент.
+        name: имя элемента.
+
+    Returns:
+        Словарь в формате, описанном в list_directory().
+    """
     full_path = normalize_path(os.path.join(directory, name))
     try:
         info: Optional[os.stat_result] = os.lstat(full_path)
@@ -124,6 +175,16 @@ def _build_item(directory: str, name: str) -> Dict[str, Any]:
 
 
 def list_directory(path: str) -> Tuple[bool, List[Dict[str, Any]]]:
+    """
+    Возвращает содержимое каталога Windows.
+
+    Args:
+        path: путь к каталогу. Длинные пути поддерживаются.
+
+    Returns:
+        (True, список_элементов) при успехе, (False, []) если путь
+        некорректен, не является каталогом или нет доступа.
+    """
     target = normalize_path(path)
     valid, message = utils.validate_windows_path(target)
     if not valid:
@@ -133,10 +194,7 @@ def list_directory(path: str) -> Tuple[bool, List[Dict[str, Any]]]:
 
     names = utils.safe_windows_listdir(target)
     if not names:
-        try:
-            os.listdir(target)
-        except OSError as error:
-            return False, []
+        return False, []
 
     items = [_build_item(target, name) for name in names]
     items.sort(key=lambda item: (item["type"] != "dir",
@@ -145,12 +203,23 @@ def list_directory(path: str) -> Tuple[bool, List[Dict[str, Any]]]:
 
 
 def _is_root(path: str) -> bool:
+    """Проверяет, что путь - корень диска или сетевой папки."""
     drive, tail = os.path.splitdrive(normalize_path(path))
     return bool(drive) and tail in ("", "\\", "/")
 
 
 def format_directory_output(items: List[Dict[str, Any]],
                             current_path: str = "") -> None:
+    """
+    Печатает содержимое каталога в виде таблицы.
+
+    Колонка «HS»: H - скрытый элемент, S - системный, "-" - флаг
+    не установлен.
+
+    Args:
+        items: данные, полученные от list_directory().
+        current_path: текущий каталог.
+    """
     if current_path and _is_root(current_path):
         print("Доступные диски:", "  ".join(list_available_drives()))
 
@@ -171,6 +240,15 @@ def format_directory_output(items: List[Dict[str, Any]],
 
 
 def move_up(current_path: str) -> str:
+    """
+    Возвращает родительский каталог для указанного пути.
+
+    Args:
+        current_path: текущий путь.
+
+    Returns:
+        Путь к родительскому каталогу.
+    """
     current = normalize_path(current_path)
     parent = normalize_path(utils.get_parent_path(current))
 
@@ -184,6 +262,17 @@ def move_up(current_path: str) -> str:
 
 
 def move_down(current_path: str, target_dir: str) -> Tuple[bool, str]:
+    """
+    Переходит в указанный подкаталог (или по абсолютному пути).
+
+    Args:
+        current_path: текущий каталог.
+        target_dir: имя подкаталога или абсолютный путь.
+
+    Returns:
+        (True, новый_путь) при успехе, (False, current_path) если
+        каталог не найден, это файл или путь некорректен.
+    """
     target = target_dir.strip().strip('"').strip()
     current = normalize_path(current_path)
 
@@ -207,6 +296,15 @@ def move_down(current_path: str, target_dir: str) -> Tuple[bool, str]:
 
 
 def get_windows_special_folders() -> Dict[str, str]:
+    """
+    Возвращает пути к специальным папкам Windows.
+
+    Returns:
+        Словарь «название -> путь». Возможные ключи: "Home",
+        "AppData", "Temp", "Windows", "Program Files",
+        "Program Files (x86)", "ProgramData", "Desktop", "Documents",
+        "Downloads", "System32".
+    """
     env = os.environ
     home = env.get("USERPROFILE", "")
     system_root = env.get("SystemRoot", "")

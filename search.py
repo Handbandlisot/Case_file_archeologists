@@ -181,8 +181,6 @@ def find_windows_system_files(path: str) -> List[str]:
     system_files = []
     target_extensions = {".exe", ".dll", ".sys"}
 
-    # Получаем пути к важным системным директориям Windows через переменные окружения
-    # Имя каталога приводим к нижнему регистру для регистронезависимого сравнения
     system_roots = []
 
     win_dir = os.environ.get("SystemRoot") or os.environ.get("WINDIR")
@@ -193,10 +191,8 @@ def find_windows_system_files(path: str) -> List[str]:
         for sub_dir in ["system32", "syswow64", "drivers"]:
             system_roots.append(os.path.join(win_dir, sub_dir).lower())
 
-    # Приводим исследуемый путь к единому виду
     current_search_path = os.path.normpath(path).lower()
 
-    # Проверяем, находится ли текущий путь внутри какой-либо системной директории Windows
     is_inside_system_zone = any(
         current_search_path.startswith(root) or root.startswith(
             current_search_path)
@@ -204,22 +200,18 @@ def find_windows_system_files(path: str) -> List[str]:
     )
 
     if not is_inside_system_zone:
-        return system_files  # Если мы далеко от системных папок, ничего не возвращаем в целях оптимизации
+        return system_files
 
-    # Используем безопасное чтение каталога через утилиты архитектора
     items = utils.safe_windows_listdir(path)
     for item_name in items:
         full_path = os.path.join(path, item_name)
 
-        # Пропускаем Junction Points и Symlinks во избежание бесконечной рекурсии
         if os.path.islink(full_path):
             continue
 
         if os.path.isdir(full_path):
-            # Рекурсивно уходим вглубь системных папок
             system_files.extend(find_windows_system_files(full_path))
         else:
-            # Проверяем расширение файла (регистронезависимо)
             _, ext = os.path.splitext(item_name.lower())
             if ext in target_extensions:
                 system_files.append(full_path)

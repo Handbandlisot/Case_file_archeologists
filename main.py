@@ -232,4 +232,5 @@ def main() -> NoReturn:
 
 
 if __name__ == "__main__":
+    # print(navigation.list_available_drives())
     main()
