@@ -1,17 +1,77 @@
 import os
 import re
-from typing import List, Dict, Any, Tuple
+import stat
+from typing import List, Dict, Any, Optional, Tuple
 import utils  # Функции архитектора
 import navigation  # Функции инженера навигации  
 import analysis  # Функции аналитика
 
-def find_files_windows(pattern: str, path: str, case_sensitive: bool = False) -> List[str]:
-    """Поиск файлов по шаблону в Windows"""
-    # TODO: Использовать navigation.list_directory() для рекурсивного обхода
-    # Реализовать поддержку Windows wildcards: *, ?
-    # Учесть регистр (по умолчанию - регистронезависимый поиск)
-    # Использовать analysis.count_files() для отслеживания прогресса
-    pass
+def find_files_windows(pattern: str, path: str,
+                       case_sensitive: bool = False) -> List[str]:
+    """Search for files matching a Windows wildcard pattern.
+
+    The search is recursive and walks the tree with
+    navigation.list_directory(). Windows wildcards are supported:
+    "*" matches any sequence of characters, "?" matches a single
+    character. Matching is case-insensitive by default, in line
+    with Windows path semantics. System files and links are skipped,
+    which keeps the scan counter consistent with the total
+    estimated by analysis.count_files().
+
+    analysis.count_files() is used to estimate the total number of
+    files so that scan progress can be shown in the terminal.
+
+    Args:
+        pattern: wildcard pattern for file names (e.g. "secrets*.txt").
+        path: the directory where the search starts.
+        case_sensitive: match the pattern case-sensitively if True.
+
+    Returns:
+        Full paths of the matching files; an empty list when nothing
+        matched or the directory cannot be read.
+    """
+    if not pattern:
+        return []
+
+    # Translate the Windows wildcard into a regular expression
+    regex = "".join(
+        ".*" if char == "*" else "." if char == "?" else re.escape(char)
+        for char in pattern
+    )
+    flags = 0 if case_sensitive else re.IGNORECASE
+    try:
+        matcher = re.compile(regex, flags).fullmatch
+    except re.error:
+        return []
+
+    results: List[str] = []
+
+    # File count estimate for progress tracking (spec requirement)
+    counted, total_files = analysis.count_files(path)
+    scanned = 0
+
+    def walk_directory(current_path: str) -> None:
+        nonlocal scanned
+        success, items = navigation.list_directory(current_path)
+        if not success:
+            return
+        for item in items:
+            if item["link"] or item["system"]:
+                continue
+            if item["type"] == "file":
+                scanned += 1
+                if counted and total_files and scanned % 10 == 0:
+                    print(f"\r  Scanning: {scanned}/{total_files} files...",
+                          end="", flush=True)
+                if matcher(item["name"]):
+                    results.append(item["path"])
+            elif item["type"] == "dir":
+                walk_directory(item["path"])
+
+    walk_directory(path)
+    if counted and total_files and scanned:
+        print()  # finish the progress line
+    return results
 
 
 def find_by_windows_extension(extensions: List[str], path: str) -> List[str]:
@@ -236,9 +296,123 @@ def search_menu_handler(current_path: str) -> bool:
     return True
 
 
+def _file_attribute_flags(path: str) -> str:
+    """Return Windows attribute flags of a file as a short string.
+
+    "H" — hidden, "S" — system, "R" — read-only; "-" when the file
+    has none of these attributes. Hidden detection falls back to
+    utils.is_hidden_windows_file() when attributes are unavailable.
+
+    Args:
+        path: full path to the file.
+
+    Returns:
+        A compact flags string for the results table.
+    """
+    hidden = utils.is_hidden_windows_file(path)
+    system = readonly = False
+    try:
+        info = os.stat(path)
+    except OSError:
+        info = None
+    attrs = getattr(info, "st_file_attributes", 0) or 0
+    system = bool(attrs & stat.FILE_ATTRIBUTE_SYSTEM)
+    readonly = bool(attrs & stat.FILE_ATTRIBUTE_READONLY)
+    flags = ""
+    if hidden:
+        flags += "H"
+    if system:
+        flags += "S"
+    if readonly:
+        flags += "R"
+    return flags or "-"
+
+
 def format_windows_search_results(results: List, search_type: str) -> None:
-    """Форматированный вывод результатов поиска для Windows"""
-    # TODO: Красиво отформатировать вывод в зависимости от типа поиска
-    # Использовать utils.format_size() для размеров
-    # Показывать атрибуты файлов через analysis.get_windows_file_attributes_stats()
-    pass
+    """Print search results as a readable table for the Windows UI.
+
+    Handles both result shapes used across the module:
+    * lists of file paths (pattern, extension and system searches);
+    * lists of dictionaries with "path" and "size_mb" keys
+      (the large-files search).
+
+    Sizes are formatted with utils.format_size(). Every row shows
+    the attribute flags of the file. The footer prints attribute
+    statistics for the scanned folders, obtained with
+    analysis.get_windows_file_attributes_stats().
+
+    Args:
+        results: search results to display.
+        search_type: result kind — "pattern", "extension",
+            "large_files" or "system"; selects the header text.
+    """
+    titles = {
+        "pattern": "Search results: wildcard pattern",
+        "extension": "Search results: files by extension",
+        "large_files": "Search results: large files",
+        "system": "Search results: Windows system files",
+    }
+    print()
+    print("=" * 70)
+    print(titles.get(search_type, "Search results"))
+    print("=" * 70)
+
+    if not results:
+        print("No files found.")
+        return
+
+    # Normalize the entries to (path, size in bytes or None)
+    entries: List[Tuple[str, Optional[int]]] = []
+    for result in results:
+        if isinstance(result, dict):
+            path = str(result.get("path", ""))
+            size_mb = result.get("size_mb")
+            size = (int(size_mb * 1024 * 1024)
+                    if isinstance(size_mb, (int, float)) else None)
+        else:
+            path = str(result)
+            size = None
+        if path:
+            entries.append((path, size))
+
+    print(f"{'Flags':<6} {'Size':>12}  Path")
+    total_size = 0
+    for path, size in entries:
+        if size is None:
+            try:
+                size = os.path.getsize(path)
+            except OSError:
+                size = 0
+        total_size += size
+        flags = _file_attribute_flags(path)
+        print(f"{flags:<6} {utils.format_size(size):>12}  {path}")
+
+    print("-" * 70)
+    print(f"Files: {len(entries)}   "
+          f"Total size: {utils.format_size(total_size)}")
+
+    # Attribute statistics for the folders that contain the results
+    folders: List[str] = []
+    for path, _ in entries:
+        folder = utils.get_parent_path(path)
+        if folder:
+            folders.append(folder)
+
+    # Keep only top-level folders to avoid walking nested trees twice
+    top_folders: List[str] = []
+    for folder in sorted(set(folders), key=len):
+        lower = folder.lower()
+        if not any(lower.startswith(top.lower() + "\\")
+                   or lower.startswith(top.lower() + "/")
+                   for top in top_folders):
+            top_folders.append(folder)
+
+    totals = {"hidden": 0, "system": 0, "readonly": 0}
+    for folder in top_folders:
+        folder_stats = analysis.get_windows_file_attributes_stats(folder)
+        for key in totals:
+            totals[key] += folder_stats.get(key, 0)
+
+    print(f"Attribute statistics for {len(top_folders)} scanned folder(s): "
+          f"hidden={totals['hidden']}, system={totals['system']}, "
+          f"readonly={totals['readonly']}")
