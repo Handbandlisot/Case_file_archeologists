@@ -6,11 +6,7 @@ import sys
 import threading
 from typing import NoReturn
 
-try:
-    import tkinter as tk
-except ImportError:  # keep the module importable on headless systems
-    tk = None
-
+import tkinter as tk
 import utils  # own module — basic Windows utilities
 import navigation  # navigation engineer module
 import analysis  # data analyst module
