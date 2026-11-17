@@ -1,15 +1,3 @@
-"""main.py — entry point of the File Archaeologist terminal navigator.
-
-Project: "File Archaeologist", module 5 (Stage 1).
-Developer: System Architect (Team Lead).
-Dependencies: integrates every project module — utils, navigation,
-analysis and search.
-
-The program is a terminal navigator for exploring the Windows file
-system: listing directories, collecting statistics and searching
-for digital artifacts.
-"""
-
 import os
 import platform
 import sys

@@ -1,17 +1,3 @@
-"""utils.py — basic utilities for working with the Windows file system.
-
-Project: "File Archaeologist", module 1 (Stage 1).
-Developer: System Architect (Team Lead).
-Dependencies: none — this module does not rely on other team modules.
-
-Platform policy:
-* The core logic follows Windows rules: path separator "\\",
-  forbidden characters / : * ? " < > |, MAX_PATH = 260 limit,
-  file attributes (FILE_ATTRIBUTE_HIDDEN).
-* Fallback behaviors are provided for development and testing
-  on non-Windows systems, as described in the function docstrings.
-"""
-
 import os
 import platform
 import ctypes
