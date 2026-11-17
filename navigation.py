@@ -187,9 +187,7 @@ def list_directory(path: str) -> Tuple[bool, List[Dict[str, Any]]]:
     """
     target = normalize_path(path)
     valid, message = utils.validate_windows_path(target)
-    if not valid:
-        return False, []
-    if not os.path.isdir(target):
+    if not valid or not os.path.isdir(target):
         return False, []
 
     names = utils.safe_windows_listdir(target)
